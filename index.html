@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dataset by. ridwanafazn x Lyfta</title>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      margin: 20px;
+      background: #f9f9f9;
+    }
+    select, button {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      padding: 5px 10px;
+      margin: 5px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background: white;
+      cursor: pointer;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: left;
+      vertical-align: middle;
+      max-width: 200px;
+      word-wrap: break-word;
+    }
+    th {
+      background-color: #f1f1f1;
+      cursor: pointer;
+      user-select: none;
+    }
+    img {
+      max-width: 100px;
+      max-height: 80px;
+      border-radius: 8px;
+      display: block;
+    }
+    .pagination {
+      margin-top: 10px;
+    }
+    .pagination button {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      margin: 2px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      background: white;
+      cursor: pointer;
+    }
+    .active-page {
+      border: 2px solid black !important;
+    }
+    #filterContainer {
+      margin-top: 10px;
+    }
+    label {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      font-weight: bold;
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Dataset by. ridwanafazn x Lyfta</h2>
+
+  <label for="csvSelect">Dataset</label>
+  <select id="csvSelect" onchange="loadSelectedCSV()">
+    <option value="">-- Select a CSV file --</option>
+    <option value="dataset/all_exercises.csv">all_exercises.csv</option>
+    <option value="dataset/dataset_fitness_4.csv">dataset_fitness_4.csv</option>
+  </select>
+
+  <div id="filterContainer" style="display:none;">
+    <label for="filterType">Filter by:</label>
+    <select id="filterType"></select>
+
+    <select id="filterValue">
+      <option value="">--Select--</option>
+    </select>
+
+    <button onclick="resetFilter()">Reset Filter</button>
+  </div>
+
+  <div id="table-container"></div>
+  <div id="pagination" class="pagination"></div>
+
+<script>
+  let data = [];
+  let filteredData = [];
+  let headers = [];
+  let currentPage = 1;
+  const rowsPerPage = 100;
+  let filterType = "";
+  let filterValue = "";
+  let sortColumn = "";
+  let sortAsc = true;
+
+  const allowedFiles = ["dataset/all_exercises.csv", "dataset/dataset_fitness_4.csv"];
+
+  function loadSelectedCSV() {
+    const file = document.getElementById('csvSelect').value;
+    if (!file) return;
+
+    if (!allowedFiles.includes(file)) {
+      alert("File not supported.");
+      return;
+    }
+
+    fetch(file)
+      .then(res => res.text())
+      .then(text => {
+        parseCSV(text);
+        setupFilterUI();
+        applyFilter();
+        if (headers.includes("exercise_type")) {
+          sortColumn = "exercise_type";
+          sortAsc = true;
+          sortData();
+        } else {
+          sortColumn = "";
+        }
+        currentPage = 1;
+        renderPagination();
+        renderTable();
+      })
+      .catch(err => alert("Error loading CSV: " + err));
+  }
+
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    headers = lines[0].split(',').map(h => h.trim());
+    data = lines.slice(1).map(line => {
+      const values = line.split(',');
+      const row = {};
+      headers.forEach((h,i) => {
+        row[h] = values[i] ? values[i].trim() : "";
+      });
+      return row;
+    });
+  }
+
+  function setupFilterUI() {
+    const filterContainer = document.getElementById('filterContainer');
+    const filterTypeSelect = document.getElementById('filterType');
+    const filterValueSelect = document.getElementById('filterValue');
+
+    const possibleFilters = ["body_part", "equipment"];
+    const availableFilters = possibleFilters.filter(col => headers.includes(col));
+
+    if (availableFilters.length === 0) {
+      filterContainer.style.display = "none";
+      filterType = "";
+      filterValue = "";
+      return;
+    }
+    filterContainer.style.display = "inline-block";
+
+    filterTypeSelect.innerHTML = availableFilters.map(col => `<option value="${col}">${capitalize(col.replace('_',' '))}</option>`).join('');
+    filterType = filterTypeSelect.value;
+    populateFilterValues();
+
+    filterTypeSelect.onchange = () => {
+      filterType = filterTypeSelect.value;
+      filterValue = "";
+      populateFilterValues();
+      applyFilter();
+      currentPage = 1;
+      renderPagination();
+      renderTable();
+    };
+
+    filterValueSelect.onchange = () => {
+      filterValue = filterValueSelect.value;
+      applyFilter();
+      currentPage = 1;
+      renderPagination();
+      renderTable();
+    };
+  }
+
+  function populateFilterValues() {
+    const filterValueSelect = document.getElementById('filterValue');
+    if (!filterType) {
+      filterValueSelect.innerHTML = `<option value="">--Select--</option>`;
+      return;
+    }
+    const valuesSet = new Set(data.map(row => row[filterType]).filter(v => v && v !== ""));
+    const values = Array.from(valuesSet).sort();
+    filterValueSelect.innerHTML = `<option value="">--Select--</option>` + values.map(v => `<option value="${v}">${v}</option>`).join('');
+  }
+
+  function applyFilter() {
+    if (!filterType || !filterValue) {
+      filteredData = [...data];
+    } else {
+      filteredData = data.filter(row => row[filterType] === filterValue);
+    }
+    if (sortColumn) {
+      sortData();
+    }
+  }
+
+  function resetFilter() {
+    filterValue = "";
+    document.getElementById('filterValue').value = "";
+    applyFilter();
+    currentPage = 1;
+    renderPagination();
+    renderTable();
+  }
+
+  function sortData() {
+    filteredData.sort((a,b) => {
+      let valA = (a[sortColumn] || "").toLowerCase();
+      let valB = (b[sortColumn] || "").toLowerCase();
+      if (valA < valB) return sortAsc ? -1 : 1;
+      if (valA > valB) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function renderTable() {
+    const start = (currentPage - 1) * rowsPerPage;
+    const end = start + rowsPerPage;
+    const rows = filteredData.slice(start, end);
+
+    const container = document.getElementById('table-container');
+    container.innerHTML = "";
+
+    if (rows.length === 0) {
+      container.textContent = "No data to display.";
+      return;
+    }
+
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const trHead = document.createElement('tr');
+
+    const thNum = document.createElement('th');
+    thNum.textContent = "#";
+    trHead.appendChild(thNum);
+
+    headers.forEach(h => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      th.style.userSelect = "none";
+      th.style.cursor = "pointer";
+      th.onclick = () => {
+        if (sortColumn === h) {
+          sortAsc = !sortAsc;
+        } else {
+          sortColumn = h;
+          sortAsc = true;
+        }
+        sortData();
+        currentPage = 1;
+        renderPagination();
+        renderTable();
+      };
+      if (h === sortColumn) {
+        th.textContent += sortAsc ? " ▲" : " ▼";
+      }
+      trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rows.forEach((row, i) => {
+      const tr = document.createElement('tr');
+
+      const tdNum = document.createElement('td');
+      tdNum.textContent = start + i + 1;
+      tr.appendChild(tdNum);
+
+      headers.forEach(h => {
+        const td = document.createElement('td');
+        if (h === "exercise_image" && row[h]) {
+          if (/^https?:\/\//i.test(row[h])) {
+            const img = document.createElement('img');
+            img.src = row[h];
+            img.alt = row["exercise_name"] || "image";
+            img.onerror = () => { td.textContent = "Image not found"; img.remove(); };
+            td.appendChild(img);
+          } else {
+            td.textContent = row[h];
+          }
+        } else {
+          td.textContent = row[h];
+        }
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+
+  function renderPagination() {
+    const container = document.getElementById('pagination');
+    container.innerHTML = "";
+    const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+    if (totalPages <= 1) return;
+
+    for (let i=1; i<=totalPages; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = i;
+      if (i === currentPage) btn.classList.add('active-page');
+      btn.onclick = () => {
+        currentPage = i;
+        renderTable();
+        renderPagination();
+      };
+      container.appendChild(btn);
+    }
+  }
+
+  function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+</script>
+</body>
+</html>
